@@ -1,0 +1,308 @@
+!pip install ucimlrepo
+
+# Imports and Initial Setup
+
+from ucimlrepo import fetch_ucirepo
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+
+import requests
+from io import StringIO
+
+from sklearn.datasets import fetch_openml            # common data set access
+from sklearn.metrics import zero_one_loss as J01
+
+import sklearn.tree as tree
+
+np.random.seed(1234)
+
+# Obtain Data
+
+adult = fetch_ucirepo(id=2)
+X = adult.data.features
+y = adult.data.targets
+X = X.to_numpy()
+Y = y.to_numpy()
+
+edu = list(np.unique(X[:,3]))
+marry = list(np.unique(X[:,5]))
+rel = list(np.unique(X[:,7]))
+race = list(np.unique(X[:,8]))
+sex = list(np.unique(X[:,9]))
+for i in range(len(X)):
+    if type(X[i,13])== float:
+         X[i,13] = "-1"
+    if type(X[i,1])== float:
+        X[i,1] = "-1"
+    if type(X[i,6])== float:
+        X[i,6] = "-1"
+workclass=list(np.unique(X[:,1]))
+occupation=list(np.unique(X[:,6]))
+country= list(np.unique(X[:,13]))
+
+for i in range(len(X)):
+    X[i,3] = edu.index(X[i,3])
+    X[i,5] = marry.index(X[i,5])
+    X[i,7] = rel.index(X[i,7])
+    X[i,8] = race.index(X[i,8])
+    X[i,9] = sex.index(X[i,9])
+    
+    X[i,1] = workclass.index(X[i,1])
+    X[i,6] = occupation.index(X[i,6])
+    X[i,13] = country.index(X[i,13])
+
+for i in range(len(Y)):
+    if (Y[i] == '<=50K') or (Y[i] == '<=50K.'):
+        Y[i] = -1
+    else:
+        Y[i] = 1
+
+Y = np.array(Y).ravel()
+
+
+
+# Split Data
+
+seed = 1234
+
+Xt, Xe, Yt, Ye = train_test_split(X, Y, test_size=0.30, random_state=seed)
+Xt = np.array(X[:10000,:])
+Yt = np.array(Y[:10000])
+Yt = list(Yt)
+
+Xe = X[10000:,:]
+Ye = Y[10000:]
+Ye = list(Ye)
+
+# AdaBoost Model Training
+
+base_est = DecisionTreeClassifier(max_depth=1)
+
+ada_boost_model = AdaBoostClassifier(estimator=base_est, n_estimators=100, random_state=seed)
+
+ada_boost_model.fit(Xt, Yt)
+
+
+# Model Evaluation
+
+# Predictions
+y_pred = ada_boost_model.predict(Xe)
+
+# Evaluation
+conf_matrix = confusion_matrix(Ye, y_pred)
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap='Blues', 
+            xticklabels=["Predicted -1", "Predicted 1"], 
+            yticklabels=["Actual -1", "Actual 1"])
+plt.title('Confusion Matrix of AdaBoost Classifier')
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.show()
+
+# Evaluation
+print(classification_report(Ye, y_pred))
+
+from sklearn.model_selection import learning_curve
+
+train_sizes, train_scores, test_scores = learning_curve(ada_boost_model, Xt, Yt, cv=5, n_jobs=-1, 
+                                                        train_sizes=np.linspace(.1, 1.0, 10), random_state=seed
+)
+
+train_scores_mean = np.mean(train_scores, axis=1)
+test_scores_mean = np.mean(test_scores, axis=1)
+
+plt.figure()
+plt.plot(train_sizes, train_scores_mean, color="r", label="Training Accuracy")
+plt.plot(train_sizes, test_scores_mean, color="g", label="Cross-validation Accuracy")
+plt.title("Learning Curves")
+plt.xlabel("Training examples")
+plt.ylabel("Accuracy")
+plt.legend()
+plt.grid()
+plt.show()
+
+# Precision measures how accurate the predictions are. In your model, the precision for class -1 is 0.89, meaning 89% of the instances predicted as -1 are correct. For class 1, it's 0.76, indicating 76% accuracy for predictions of class 1.
+# Recall refers to the proportion of actual positive cases that were correctly identified. For class -1, it's 0.94, suggesting the model is good at identifying this class. However, for class 1, the recall is 0.61, which is lower, indicating some of the actual 1 cases are missed.
+# F1-score is the harmonic mean of precision and recall. A higher F1-score indicates a more balanced performance between precision and recall. Class -1 has a higher F1-score (0.91) compared to class 1 (0.68), implying that the model performs better for class -1.
+# The model predicts class -1 more accurately than class 1. This could be due to several factors, such as class imbalance (more instances of class -1 in the training data), class -1 being easier to predict due to clearer patterns in the features, or class 1 having more complex or less distinct patterns.
+
+# Testing Different Number of Estimators
+
+n_estimators_range = range(10, 400, 20)
+
+# Lists to keep track of train and test accuracies
+train_accuracies = []
+test_accuracies = []
+
+# Loop over the range
+for n_estimators in n_estimators_range:
+    model = AdaBoostClassifier(estimator=DecisionTreeClassifier(max_depth=1), 
+                               n_estimators=n_estimators, random_state=seed)
+    model.fit(Xt, Yt)
+    train_pred = model.predict(Xt)
+    test_pred = model.predict(Xe)
+    train_accuracies.append(accuracy_score(Yt, train_pred))
+    test_accuracies.append(accuracy_score(Ye, test_pred))
+    print(accuracy_score(Ye, test_pred))
+    print(n_estimators)
+# Plotting train and test accuracies
+plt.figure(figsize=(10, 6))
+plt.plot(n_estimators_range, train_accuracies, label='Train Accuracy')
+plt.plot(n_estimators_range, test_accuracies, label='Test Accuracy')
+plt.xlabel('Number of Estimators')
+plt.ylabel('Accuracy')
+plt.title('Model Performance with Varying Number of Estimators')
+plt.legend()
+plt.show()
+
+# Number of Estimators Increased both Train Accuracy and Test Accuracy but Train Accuracy increased faster than 
+# test accuracy which I dont know what that implies. However, I discovered that the optimal number of estimators
+# for max test and train accuracy is 275.
+
+# Testing Different Max Depths
+
+
+max_depth_range = [1, 2, 3, 5]
+
+
+# Lists to keep track of train and test accuracies
+train_accuracies = []
+test_accuracies = []
+
+# Loop over the range
+for max_depth in max_depth_range:
+    model = AdaBoostClassifier(estimator=DecisionTreeClassifier(max_depth=max_depth), 
+                               n_estimators=100, random_state=seed)
+    model.fit(Xt, Yt)
+    train_pred = model.predict(Xt)
+    test_pred = model.predict(Xe)
+    train_accuracies.append(accuracy_score(Yt, train_pred))
+    test_accuracies.append(accuracy_score(Ye, test_pred))
+
+# Plotting train and test accuracies
+plt.figure(figsize=(10, 6))
+plt.plot(max_depth_range, train_accuracies, label='Train Accuracy')
+plt.plot(max_depth_range, test_accuracies, label='Test Accuracy')
+plt.xlabel('Max Depth')
+plt.ylabel('Accuracy')
+plt.title('Model Performance with Varying Number of Max Depths')
+plt.legend()
+plt.show()
+
+# Although increasing max depths increases train accuracy, it actually doesn't affect test accuracy until 2.0 where it starts to decrease it. This means leaving the max_depth at 1 is fine.
+
+# Testing Different Learning Rates
+
+learning_rate_range = [0.01, 0.1, 0.5, 1, 1.5]
+# Lists to keep track of train and test accuracies
+train_accuracies = []
+test_accuracies = []
+
+# Loop over the range
+for learning_rate in learning_rate_range:
+    model = AdaBoostClassifier(estimator=DecisionTreeClassifier(max_depth=1), 
+                               n_estimators=100, learning_rate = learning_rate,random_state=seed)
+    model.fit(Xt, Yt)
+    train_pred = model.predict(Xt)
+    test_pred = model.predict(Xe)
+    train_accuracies.append(accuracy_score(Yt, train_pred))
+    test_accuracies.append(accuracy_score(Ye, test_pred))
+
+# Plotting train and test accuracies
+plt.figure(figsize=(10, 6))
+plt.plot(learning_rate_range, train_accuracies, label='Train Accuracy')
+plt.plot(learning_rate_range, test_accuracies, label='Test Accuracy')
+plt.xlabel('Learning Rate')
+plt.ylabel('Accuracy')
+plt.title('Model Performance with Varying Number of Learning Rates')
+plt.legend()
+plt.show()
+
+# Higher learning rate increases both train and test accuracy at a pretty much the same rate until around 0.5 where train 
+# accuracy is increasing faster. After 1.0 test accuracy stops increasing so keeping it at 1 is fine.
+
+# Testing accuracies with optimized parameters which are 275 estimators, 1.0 learning rate, and 1 max_depth.
+
+model = AdaBoostClassifier(estimator=DecisionTreeClassifier(max_depth=1), 
+                               n_estimators=270,learning_rate = 1.0, random_state=seed)
+model.fit(Xt, Yt)
+train_pred = model.predict(Xt)
+test_pred = model.predict(Xe)
+print(accuracy_score(Yt, train_pred))
+print(accuracy_score(Ye, test_pred))
+
+# Testing for Overfitting
+
+from sklearn.model_selection import learning_curve
+
+train_sizes, train_scores, test_scores = learning_curve(model, Xt, Yt, cv=5, n_jobs=-1, 
+                                                        train_sizes=np.linspace(.1, 1.0, 10), random_state=seed
+)
+
+train_scores_mean = np.mean(train_scores, axis=1)
+test_scores_mean = np.mean(test_scores, axis=1)
+
+plt.figure()
+plt.plot(train_sizes, train_scores_mean, color="r", label="Training Accuracy")
+plt.plot(train_sizes, test_scores_mean, color="g", label="Cross-validation Accuracy")
+plt.title("Learning Curves")
+plt.xlabel("Training examples")
+plt.ylabel("Accuracy")
+plt.legend()
+plt.grid()
+plt.show()
+
+# Cross-validation score starts very low while the training score starts very high. They slowly get closer to each other as training score decreases and cross-validation score increases. We only have 8000 training examples so are not able to see if they ever converge but it looks like the gap between them is staying the same. I think this shows overfitting.
+
+# Efforts to Reduce Overfitting By Reducing Amount of Features
+
+from sklearn.feature_selection import SelectKBest, chi2
+
+# Feature selection
+selector = SelectKBest(chi2, k=10)
+X_new = selector.fit_transform(X, list(Y))
+
+# Split the reduced dataset
+Xt_new, Xe_new, Yt_new, Ye_new = train_test_split(X_new, Y, test_size=0.30, random_state=seed)
+Yt_new = Yt_new
+Ye_new = Ye_new
+selected_features_idx = selector.get_support(indices=True)
+
+# Get the names of the selected features from the original dataframe
+selected_feature_names = adult.data.features.columns[selected_features_idx]
+
+print("Selected Features:", selected_feature_names)
+
+model = AdaBoostClassifier(estimator=DecisionTreeClassifier(max_depth=1), 
+                               n_estimators=270, random_state=seed)
+model.fit(Xt_new, list(Yt_new))
+train_pred = model.predict(Xt_new)
+test_pred = model.predict(Xe_new)
+
+train_sizes, train_scores, test_scores = learning_curve(model, Xt_new, list(Yt_new), cv=5, n_jobs=-1, 
+                                                        train_sizes=np.linspace(.1, 1.0, 10), random_state=seed
+)
+
+train_scores_mean = np.mean(train_scores, axis=1)
+test_scores_mean = np.mean(test_scores, axis=1)
+
+plt.figure()
+plt.plot(train_sizes, train_scores_mean, color="r", label="Training Accuracy")
+plt.plot(train_sizes, test_scores_mean, color="g", label="Cross-validation Accuracy")
+plt.title("Learning Curves After Feature Selection")
+plt.xlabel("Training examples")
+plt.ylabel("Accuracy")
+plt.legend()
+plt.grid()
+plt.show()
+
+# This did bring the training and cross-validation scores closer to each other in the end, but it lowered both of the scores.
